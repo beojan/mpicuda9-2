@@ -1,4 +1,4 @@
-FROM nvidia/cuda:13.0.2-cudnn-devel-rockylinux9
+FROM nvidia/cuda:13.1.2-cudnn-devel-rockylinux9
 LABEL org.opencontainers.image.authors="Beojan Stanislaus <bstanislaus@lbl.gov>"
 
 USER root

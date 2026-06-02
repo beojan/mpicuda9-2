@@ -1,0 +1,32 @@
+FROM atlasadc/atlas-grid-almalinux9:latest
+LABEL org.opencontainers.image.authors="Beojan Stanislaus <bstanislaus@lbl.gov>"
+
+USER root
+
+RUN yum -y erase zsh && yum -y update && yum -y install yum-utils expat expat-devel hdf5 hdf5-devel && yum clean all
+COPY --chown=root:root --chmod=755 startup.sh /etc/startup.sh
+RUN echo source /etc/startup.sh >> /etc/profile.d/container-date.sh
+COPY --chown=root:root --chmod=700 timemory-3.3.0-Linux.tar.xz /timemory-3.3.0-Linux.tar.xz
+COPY --chown=root:root --chmod=700 install-mpi.sh /usr/bin/install-mpi.sh
+COPY --chown=root:root --chmod=700 starship.sh /usr/bin/install-starship.sh
+ENV BASH_ENV=/etc/startup.sh \
+    ENV=/etc/startup.sh 
+
+# RUN --mount=type=bind,source=cvmfs,target=/cvmfs install-mpi.sh
+RUN install-mpi.sh
+RUN install-starship.sh --yes
+RUN rm /usr/bin/install-mpi.sh
+RUN rm /usr/bin/install-starship.sh
+
+FROM scratch
+COPY --from=0 / /
+
+ENV BASH_ENV=/etc/startup.sh \
+    ENV=/etc/startup.sh 
+
+LABEL org.opencontainers.image.authors="Beojan Stanislaus <bstanislaus@lbl.gov>"
+USER root
+WORKDIR /root
+
+ENTRYPOINT sh
+

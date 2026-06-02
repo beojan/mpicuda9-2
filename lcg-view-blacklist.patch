@@ -1,0 +1,13 @@
+diff --git a/cmake/scripts/create_lcg_view.py b/cmake/scripts/create_lcg_view.py
+index 159a0c7bb..febeae155 100755
+--- a/cmake/scripts/create_lcg_view.py
++++ b/cmake/scripts/create_lcg_view.py
+@@ -484,7 +484,7 @@ This package creates a "view" of LCG release in folder <view_destination>.
+                          'powheg-box', 'sherpa-mpich2',
+                          'sherpa-openmpi', 'Qt6', 'qt6'
+                          'pyanalysis', 'pytools', 'pygraphics', 'PythonFWK',
+-                         'GraalVM']
++                         'GraalVM', 'cuda', 'cudnn']
+     else:
+         blacklist = ['version.txt']
+         greylist = []

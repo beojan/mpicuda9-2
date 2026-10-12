@@ -1,4 +1,4 @@
-FROM nvidia/cuda:13.1.2-cudnn-devel-rockylinux9
+FROM nvidia/cuda:13.3.1-cudnn-devel-rockylinux9
 LABEL org.opencontainers.image.authors="Beojan Stanislaus <bstanislaus@lbl.gov>"
 
 USER root
@@ -26,12 +26,16 @@ RUN install-mpi.sh
 RUN rm -f /usr/bin/install-mpi.sh /usr/bin/install-starship.sh && \
     rm -rf /root/.cache /tmp/* /var/cache/dnf /var/cache/yum
 RUN python3 -m bash_kernel.install --sys-prefix
+RUN printf '#!/bin/bash\nexec /bin/bash --rcfile /etc/startup.sh -i "$@"\n' > /usr/local/bin/apptainer-shell && \
+    chmod 755 /usr/local/bin/apptainer-shell
 
 FROM scratch
 COPY --from=0 / /
 
 ENV BASH_ENV=/etc/startup.sh \
-    ENV=/etc/startup.sh 
+    ENV=/etc/startup.sh \
+    SINGULARITY_SHELL=/usr/local/bin/apptainer-shell \
+    APPTAINER_SHELL=/usr/local/bin/apptainer-shell
 
 LABEL org.opencontainers.image.authors="Beojan Stanislaus <bstanislaus@lbl.gov>"
 USER root

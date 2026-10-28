@@ -29,7 +29,9 @@ build_image() {
     local old_id
     old_id=$(docker image inspect --format '{{.Id}}' "$tag" 2>/dev/null || true)
 
-    docker buildx build --load -f "$dockerfile" -t "$tag" "$@" .
+    # Host networking avoids "failed to create endpoint" errors from the default
+    # bridge on this host during RUN steps.
+    docker buildx build --network=host --load -f "$dockerfile" -t "$tag" "$@" .
 
     # Docker moves the tag to the new image, so the old image is now untagged.
     # Remove it, and only warn if it is still in use or has other tags.

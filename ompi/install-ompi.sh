@@ -7,9 +7,14 @@ export ompi_prefix=openmpi-$ompi
 wget https://download.open-mpi.org/release/open-mpi/v5.0/$ompi_prefix.tar.bz2 && \
 tar axf $ompi_prefix.tar.bz2                                                  && \
 cd $ompi_prefix                                                               && \
-./configure --prefix=/usr --with-cuda=/usr/local/cuda --with-ft=mpi           && \
+./configure --prefix=/usr --with-cuda=/usr/local/cuda --with-ft=mpi           \
+            --with-pmix=internal --with-zlib                                  && \
 make -j 8                                                                     && \
-make install
+make install                                                                  && \
+/sbin/ldconfig
+# PMIx builds zlib as a plugin, not into libpmix.so. Fail the image build if
+# the plugin is missing or does not link zlib.
+ldd /usr/lib64/pmix/pmix_mca_pcompress_zlib.so | grep -q libz
 cd ..
 rm -rf $ompi_prefix
 rm -rf $ompi_prefix.tar.bz2

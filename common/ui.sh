@@ -127,3 +127,16 @@ ui_run() {
     fi
     return "$rc"
 }
+
+# Print the namespace for image tags. IMAGE_NAMESPACE wins. Otherwise use the
+# Docker Hub user that `docker info` reports for the current login, and fall
+# back to the local user name.
+image_namespace() {
+    local user
+    if [[ -n ${IMAGE_NAMESPACE:-} ]]; then
+        printf '%s\n' "$IMAGE_NAMESPACE"
+        return
+    fi
+    user=$(docker info 2>/dev/null | sed -n 's/^ *Username: *//p' | head -n 1)
+    printf '%s\n' "${user:-${USER:-$(id -un)}}"
+}

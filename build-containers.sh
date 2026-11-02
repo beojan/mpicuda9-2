@@ -13,6 +13,11 @@
 # not set, the script looks for the toolkit from CUDA_HOME, CUDA_PATH, nvcc on
 # PATH, /usr/local/cuda and /opt/cuda.
 #
+# Every tag starts with a namespace so the images can be pushed. The namespace
+# is IMAGE_NAMESPACE if set. Otherwise it is the Docker Hub user you are logged
+# in as, or your local user name. For another registry, include it, for example
+# IMAGE_NAMESPACE=ghcr.io/<user>.
+#
 # Usage: build-containers.sh [-h|--help] [mpich|ompi|mpich-cuda]
 # Without an argument the script shows a menu.
 
@@ -20,6 +25,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 source common/ui.sh
+ns=$(image_namespace)
+readonly ns
 trap ui_show_cursor EXIT
 
 # Print the first directory that looks like a CUDA toolkit, or nothing.
@@ -93,7 +100,7 @@ docker buildx version >/dev/null 2>&1 ||
     die "docker buildx is not available." "Install the buildx plugin, or check that the Docker daemon is running."
 
 # The mpich + CUDA image takes its CUDA version from its base image tag.
-# The tag uses major.minor only, for example mpicuda13:13.4.
+# The tag uses major.minor only, for example <user>/mpicuda13:13.4.
 cuda_version=$(sed -nE 's/^FROM nvidia\/cuda:([0-9.]+)-.*/\1/p' mpich-cuda/Dockerfile | head -n 1)
 [[ -n $cuda_version ]] || die "Could not read the CUDA version from mpich-cuda/Dockerfile."
 cuda_tag=${cuda_version%.*}
@@ -162,18 +169,18 @@ require_cuda_host_dir() {
 
 build_mpich() {
     require_cuda_host_dir
-    build_image mpich/Dockerfile mpialma9-2:latest \
+    build_image mpich/Dockerfile "$ns/mpialma9-2:latest" \
         --build-context "cuda=$CUDA_HOST_DIR"
 }
 
 build_ompi() {
     require_cuda_host_dir
-    build_image ompi/Dockerfile openmpialma9:latest \
+    build_image ompi/Dockerfile "$ns/openmpialma9:latest" \
         --build-context "cuda=$CUDA_HOST_DIR"
 }
 
 build_mpich_cuda() {
-    build_image mpich-cuda/Dockerfile "mpicuda13:$cuda_tag"
+    build_image mpich-cuda/Dockerfile "$ns/mpicuda13:$cuda_tag"
 }
 
 # Print one menu entry: a number, a name, then description lines and a tag line.
@@ -193,17 +200,17 @@ case ${1:-} in
 esac
 
 printf '%sChoose a container to build:%s\n\n' "$UI_BOLD" "$UI_RESET"
-menu_item 1 "mpich" "mpialma9-2:latest" \
+menu_item 1 "mpich" "$ns/mpialma9-2:latest" \
     "MPICH built with CUDA support, on the ATLAS AlmaLinux 9 base image." \
     "CUDA headers come from the host at" \
     "${CUDA_HOST_DIR:-<CUDA_HOST_DIR not found>} during the build, so CUDA is not" \
     "installed in the image."
-menu_item 2 "ompi" "openmpialma9:latest" \
+menu_item 2 "ompi" "$ns/openmpialma9:latest" \
     "CUDA-aware OpenMPI 5 with ULFM fault tolerance, on the ATLAS" \
     "AlmaLinux 9 base image. CUDA headers come from the host at" \
     "${CUDA_HOST_DIR:-<CUDA_HOST_DIR not found>} during the build, so CUDA is not" \
     "installed in the image."
-menu_item 3 "mpich + cuda" "mpicuda13:$cuda_tag" \
+menu_item 3 "mpich + cuda" "$ns/mpicuda13:$cuda_tag" \
     "MPICH built with CUDA support, on NVIDIA's Rocky 9 CUDA devel image" \
     "(CUDA $cuda_version). Use it for GPU MPI jobs with MPICH."
 

@@ -4,7 +4,7 @@
 # Convert a Docker image into an Apptainer SIF image (mpi.img).
 #
 # Usage: build-img.sh [-h|--help] [image]
-#   image  Docker image to convert, default mpicuda13:13.4. The image must be
+#   image  Docker image to convert, default <namespace>/mpicuda13:13.4. The image must be
 #          in the local Docker daemon, for example one built by build-containers.sh.
 #
 # Environment:
@@ -27,7 +27,7 @@ ${UI_BOLD}Usage:${UI_RESET} $(basename -- "$0") [-h|--help] [image]
 Convert a Docker image from the local Docker daemon into an Apptainer image.
 
 ${UI_BOLD}Arguments:${UI_RESET}
-  image         Docker image to convert, as name:tag. Default: mpicuda13:13.4.
+  image         Docker image to convert, as name:tag. Default: <namespace>/mpicuda13:13.4.
                 Build one first with build-containers.sh. List the images
                 you have with: docker image ls
 
@@ -59,7 +59,7 @@ case ${1:-} in
 esac
 (($# <= 1)) || { usage >&2; die "expected at most one image argument, got $#"; }
 
-readonly image_ref=${1:-mpicuda13:13.4}
+readonly image_ref=${1:-$(image_namespace)/mpicuda13:13.4}
 readonly output_img=${OUTPUT_IMG:-"$(pwd)/mpi.img"}
 readonly work_root=${WORK_ROOT:-"$(dirname -- "${output_img}")"}
 

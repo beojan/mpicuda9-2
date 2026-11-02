@@ -8,7 +8,10 @@
 # Each image is tagged with a fixed name. Before the new image replaces the
 # previous one, the old image is removed so the tag does not accumulate
 # stale layers. The CUDA-aware OpenMPI build reads the host CUDA toolkit from
-# CUDA_HOST_DIR (default /opt/cuda) and does not install CUDA in the image.
+# CUDA_HOST_DIR and does not install CUDA in the image. The MPICH build does
+# the same. When CUDA_HOST_DIR is
+# not set, the script looks for the toolkit from CUDA_HOME, CUDA_PATH, nvcc on
+# PATH, /usr/local/cuda and /opt/cuda.
 #
 # Usage: build-containers.sh [-h|--help] [mpich|ompi|mpich-cuda]
 # Without an argument the script shows a menu.
@@ -19,7 +22,28 @@ cd "$(dirname "$0")"
 source common/ui.sh
 trap ui_show_cursor EXIT
 
-CUDA_HOST_DIR=${CUDA_HOST_DIR:-/opt/cuda}
+# Print the first directory that looks like a CUDA toolkit, or nothing.
+find_cuda_dir() {
+    local candidate nvcc_path
+    local -a candidates=("${CUDA_HOME:-}" "${CUDA_PATH:-}")
+    if nvcc_path=$(command -v nvcc 2>/dev/null); then
+        candidates+=("$(dirname -- "$(dirname -- "$(readlink -f -- "$nvcc_path")")")")
+    fi
+    candidates+=(/usr/local/cuda /opt/cuda)
+    for candidate in "${candidates[@]}"; do
+        if [[ -n $candidate && -f $candidate/include/cuda_runtime.h ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+    done
+}
+
+CUDA_HOST_DIR=${CUDA_HOST_DIR:-$(find_cuda_dir)}
+
+# Network mode for RUN steps. Host networking avoids "failed to create
+# endpoint" errors from the default bridge on some hosts. Set BUILD_NETWORK to
+# default to use Docker's normal networking.
+BUILD_NETWORK=${BUILD_NETWORK:-host}
 
 # Print an error with an optional hint on the next line, then exit.
 # Usage: die <message> [hint]
@@ -39,13 +63,16 @@ Build one of the MPI container images with Docker. Without an argument, a
 menu lets you choose. The new image replaces the one with the same tag.
 
 ${UI_BOLD}Images:${UI_RESET}
-  mpich        MPICH, no CUDA, on the ATLAS AlmaLinux 9 image
+  mpich        CUDA-aware MPICH, on the ATLAS AlmaLinux 9 image
   ompi         CUDA-aware OpenMPI 5 with ULFM, on the ATLAS AlmaLinux 9 image
   mpich-cuda   MPICH with CUDA, on NVIDIA's Rocky 9 CUDA devel image
 
 ${UI_BOLD}Environment:${UI_RESET}
-  CUDA_HOST_DIR  Host CUDA toolkit used by the ompi build. Default: /opt/cuda.
-                 It must contain include/cuda_runtime.h.
+  CUDA_HOST_DIR  Host CUDA toolkit used by the mpich and ompi builds. It must contain
+                 include/cuda_runtime.h. Default: the first of CUDA_HOME,
+                 CUDA_PATH, the nvcc location, /usr/local/cuda and /opt/cuda
+                 that has it.
+  BUILD_NETWORK  Docker network mode for build steps. Default: host.
   NO_COLOR       Set to turn off colours.
 
 The full build output goes to a log file. Its path is shown if the build fails.
@@ -66,8 +93,9 @@ docker buildx version >/dev/null 2>&1 ||
     die "docker buildx is not available." "Install the buildx plugin, or check that the Docker daemon is running."
 
 # The mpich + CUDA image takes its CUDA version from its base image tag.
-# The tag uses major.minor only, matching the existing beojan/mpicuda13:13.4.
-cuda_version=$(rg -or '$1' '^FROM nvidia/cuda:([0-9.]+)-' mpich-cuda/Dockerfile)
+# The tag uses major.minor only, for example mpicuda13:13.4.
+cuda_version=$(sed -nE 's/^FROM nvidia\/cuda:([0-9.]+)-.*/\1/p' mpich-cuda/Dockerfile | head -n 1)
+[[ -n $cuda_version ]] || die "Could not read the CUDA version from mpich-cuda/Dockerfile."
 cuda_tag=${cuda_version%.*}
 
 # Read the plain-text output of docker buildx and print "<percent>|<label>".
@@ -108,12 +136,10 @@ build_image() {
     local old_id
     old_id=$(docker image inspect --format '{{.Id}}' "$tag" 2>/dev/null || true)
 
-    # Host networking avoids "failed to create endpoint" errors from the default
-    # bridge on this host during RUN steps.
     local log
     log=$(mktemp -t "build-${tag//[^A-Za-z0-9._-]/_}.XXXXXX.log")
     ui_run "Building $tag" "$log" buildx_progress \
-        docker buildx build --progress=plain --network=host --load \
+        docker buildx build --progress=plain --network="$BUILD_NETWORK" --load \
         -f "$dockerfile" -t "$tag" "$@" .
 
     # Docker moves the tag to the new image, so the old image is now untagged.
@@ -126,32 +152,28 @@ build_image() {
     printf 'Image %s%s%s is ready (%s)\n' "$UI_BOLD" "$tag" "$UI_RESET" "${new_id#sha256:}"
 }
 
+# Stop unless CUDA_HOST_DIR holds a CUDA toolkit.
+require_cuda_host_dir() {
+    if [[ -z $CUDA_HOST_DIR || ! -f $CUDA_HOST_DIR/include/cuda_runtime.h ]]; then
+        die "CUDA headers not found${CUDA_HOST_DIR:+ under $CUDA_HOST_DIR} (no include/cuda_runtime.h)." \
+            "Set CUDA_HOST_DIR to the host CUDA toolkit directory."
+    fi
+}
+
 build_mpich() {
-    build_image mpich/Dockerfile mpialma9-2:latest
+    require_cuda_host_dir
+    build_image mpich/Dockerfile mpialma9-2:latest \
+        --build-context "cuda=$CUDA_HOST_DIR"
 }
 
 build_ompi() {
-    if [[ ! -f "$CUDA_HOST_DIR/include/cuda_runtime.h" ]]; then
-        die "CUDA headers not found under $CUDA_HOST_DIR (no include/cuda_runtime.h)." \
-            "Set CUDA_HOST_DIR to the host CUDA toolkit directory."
-    fi
+    require_cuda_host_dir
     build_image ompi/Dockerfile openmpialma9:latest \
         --build-context "cuda=$CUDA_HOST_DIR"
 }
 
 build_mpich_cuda() {
-    # The previous image was built under the beojan/ prefix. Remove that tag
-    # once the new image exists, so the new build replaces it.
-    local legacy_tag=beojan/mpicuda13:$cuda_tag
-    local legacy_id
-    legacy_id=$(docker image inspect --format '{{.Id}}' "$legacy_tag" 2>/dev/null || true)
-
     build_image mpich-cuda/Dockerfile "mpicuda13:$cuda_tag"
-
-    if [[ -n $legacy_id ]]; then
-        docker image rm "$legacy_tag" >/dev/null
-        echo "Removed previous image $legacy_tag"
-    fi
 }
 
 # Print one menu entry: a number, a name, then description lines and a tag line.
@@ -172,13 +194,16 @@ esac
 
 printf '%sChoose a container to build:%s\n\n' "$UI_BOLD" "$UI_RESET"
 menu_item 1 "mpich" "mpialma9-2:latest" \
-    "MPICH on the ATLAS AlmaLinux 9 base image, with no CUDA." \
-    "Use it for CPU-only MPI jobs."
+    "MPICH built with CUDA support, on the ATLAS AlmaLinux 9 base image." \
+    "CUDA headers come from the host at" \
+    "${CUDA_HOST_DIR:-<CUDA_HOST_DIR not found>} during the build, so CUDA is not" \
+    "installed in the image."
 menu_item 2 "ompi" "openmpialma9:latest" \
     "CUDA-aware OpenMPI 5 with ULFM fault tolerance, on the ATLAS" \
     "AlmaLinux 9 base image. CUDA headers come from the host at" \
-    "$CUDA_HOST_DIR during the build, so CUDA is not installed in the image."
-menu_item 3 "mpich + cuda" "mpicuda13:$cuda_tag (replaces beojan/mpicuda13:$cuda_tag)" \
+    "${CUDA_HOST_DIR:-<CUDA_HOST_DIR not found>} during the build, so CUDA is not" \
+    "installed in the image."
+menu_item 3 "mpich + cuda" "mpicuda13:$cuda_tag" \
     "MPICH built with CUDA support, on NVIDIA's Rocky 9 CUDA devel image" \
     "(CUDA $cuda_version). Use it for GPU MPI jobs with MPICH."
 

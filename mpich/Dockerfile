@@ -22,7 +22,7 @@ ENV BASH_ENV=/etc/startup.sh \
 # RUN --mount=type=bind,source=cvmfs,target=/cvmfs install-mpi.sh
 RUN pip install --no-cache-dir jupyterlab bash_kernel pynvim
 RUN install-starship.sh --yes
-RUN install-mpi.sh
+RUN --mount=type=bind,from=cuda,target=/usr/local/cuda install-mpi.sh
 RUN rm -f /usr/bin/install-mpi.sh /usr/bin/install-starship.sh && \
     rm -rf /root/.cache /tmp/* /var/cache/dnf /var/cache/yum
 RUN python3 -m bash_kernel.install --sys-prefix

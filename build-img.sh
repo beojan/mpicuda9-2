@@ -96,12 +96,12 @@ mkdir -p "${work_dir}/apptainer-cache" "${work_dir}/apptainer-tmp"
 apptainer_progress() {
     local text pct label
     text=$(tr '\r' '\n' <"$1" | tail -n 40)
-    pct=$(rg -o -r '$1' '\]\s+\d+/\d+\s+(\d+)%' <<<"$text" | tail -n 1 || true)
+    pct=$(grep -oE '\][[:space:]]+[0-9]+/[0-9]+[[:space:]]+[0-9]+%' <<<"$text" | tail -n 1 | grep -oE '[0-9]+%$' | tr -d '%' || true)
     if [[ -n $pct ]]; then
         printf '%s|Compressing the filesystem\n' "$pct"
         return
     fi
-    label=$(rg -o -r '$1' '^(?:INFO|WARNING):\s+(.*)' <<<"$text" | tail -n 1 || true)
+    label=$(sed -nE 's/^(INFO|WARNING):[[:space:]]+(.*)/\2/p' <<<"$text" | tail -n 1 || true)
     printf '|%s\n' "${label:-Starting apptainer}"
 }
 

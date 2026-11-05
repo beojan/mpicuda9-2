@@ -7,6 +7,7 @@ RUN yum -y erase zsh vim vim-minimal && \
     yum -y update && \
     yum -y install \
       yum-utils expat expat-devel zlib-devel man-db wget \
+      libfabric libfabric-devel rdma-core-devel numactl-devel \
       gcc-toolset-13-libstdc++-devel python3-pip \
       ripgrep fd-find ShellCheck yamllint && \
     yum clean all

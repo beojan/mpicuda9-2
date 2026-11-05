@@ -77,6 +77,8 @@ ui_bar() {
 # The parser is a function that is called with the log file path about twice a
 # second. It prints "<percent>|<label>" on one line. The percent may be empty
 # when the progress is unknown, and the bar is then replaced by a spinner.
+# A label wider than the terminal is wrapped at spaces, and the continuation
+# lines are aligned with the start of the label.
 # The command's exit status is returned. On failure the end of the log is
 # printed and the log file is kept. On success the log file is removed.
 ui_run() {
@@ -88,26 +90,48 @@ ui_run() {
     pid=$!
 
     if [[ -t 1 ]]; then
-        local spin=("${UI_SPINNER[@]}") tick=0 cols pct label line
-        cols=$(tput cols 2>/dev/null || echo 80)
+        local spin=("${UI_SPINNER[@]}") tick=0 cols pct label line elapsed
+        local width avail indent out i prev_lines=1
+        local -a parts
         printf '\e[?25l'
         while kill -0 "$pid" 2>/dev/null; do
+            cols=$(tput cols 2>/dev/null || echo 80)
             pct= label=
             IFS='|' read -r pct label < <("$parser" "$log") || true
+            elapsed=$(ui_elapsed $((SECONDS - start)))
+            # "width" is the number of terminal cells the status prefix uses.
             line="${UI_CYAN}${spin[tick % ${#spin[@]}]}${UI_RESET} "
             if [[ -n $pct ]]; then
                 line+="$(ui_bar "$pct" 24) $(printf '%3d%%' "$pct")  "
+                width=$((2 + 24 + 1 + 4 + 2))
             else
                 line+="${UI_BOLD}${title}${UI_RESET}  "
+                width=$((2 + ${#title} + 2))
             fi
-            line+="${UI_DIM}$(ui_elapsed $((SECONDS - start)))${UI_RESET}  "
-            # Leave room for the part of the line that is already drawn.
-            line+="${label:0:$((cols > 56 ? cols - 56 : 0))}"
-            printf '\r\e[K%s' "$line"
+            line+="${UI_DIM}${elapsed}${UI_RESET}  "
+            width=$((width + ${#elapsed} + 2))
+            # Break a long label at spaces. The first line follows the prefix
+            # and later lines are indented to start in the same column.
+            avail=$((cols - 1 - width))
+            ((avail < 20)) && avail=20
+            parts=()
+            if [[ -n $label ]]; then
+                mapfile -t parts < <(printf '%s\n' "$label" | fold -s -w "$avail" | sed 's/ *$//')
+            fi
+            printf -v indent '%*s' "$width" ''
+            out="$line${parts[0]:-}"
+            for ((i = 1; i < ${#parts[@]}; i++)); do
+                out+=$'\n'"$indent${parts[i]}"
+            done
+            # Return to the first line of the previous frame, then redraw.
+            ((prev_lines > 1)) && printf '\e[%dA' $((prev_lines - 1))
+            printf '\r\e[J%s' "$out"
+            prev_lines=$((${#parts[@]} > 1 ? ${#parts[@]} : 1))
             tick=$((tick + 1))
             sleep 0.5
         done
-        printf '\r\e[K\e[?25h'
+        ((prev_lines > 1)) && printf '\e[%dA' $((prev_lines - 1))
+        printf '\r\e[J\e[?25h'
     else
         printf '==> %s\n' "$title"
     fi
